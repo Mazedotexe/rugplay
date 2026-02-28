@@ -48,25 +48,13 @@ export const auth = betterAuth({
             clientSecret: privateEnv.GOOGLE_CLIENT_SECRET,
             mapProfileToUser: async (profile) => {
                 const newUsername = generateUsername();
-                let s3ImageKey: string | null = null;
-                if (profile.picture) {
-                    try {
-                        const response = await fetch(profile.picture);
-                        if (response.ok) {
-                            const blob = await response.blob();
-                            const arrayBuffer = await blob.arrayBuffer();
-                            s3ImageKey = await uploadProfilePicture(
-                                profile.sub,
-                                new Uint8Array(arrayBuffer),
-                                blob.type || 'image/jpeg'
-                            );
-                        }
-                    } catch (e) { console.error('S3 Error:', e); }
-                }
+                
+                // Temporarily using Google's default picture URL instead of uploading to S3
+                // We will re-enable S3 once your environment variables are set up
                 return {
                     name: profile.name,
                     email: profile.email,
-                    image: s3ImageKey,
+                    image: profile.picture || null, 
                     username: newUsername,
                 };
             },
