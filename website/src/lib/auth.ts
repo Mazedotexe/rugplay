@@ -1,14 +1,15 @@
-// src/lib/auth.ts (or your auth config file)
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { sveltekitCookies, getRequestEvent } from "better-auth/plugins/svelte-kit";
+import { apiKey } from "better-auth/plugins";
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
 import { db } from "./server/db";
 import * as schema from "./server/db/schema";
 import { generateUsername } from "./utils/random";
 import { uploadProfilePicture } from "./server/s3";
-import { apiKey } from "better-auth/plugins";
 
+// Ensure critical variables exist at runtime
 if (!privateEnv.GOOGLE_CLIENT_ID) throw new Error('GOOGLE_CLIENT_ID is not set');
 if (!privateEnv.GOOGLE_CLIENT_SECRET) throw new Error('GOOGLE_CLIENT_SECRET is not set');
 if (!publicEnv.PUBLIC_BETTER_AUTH_URL) throw new Error('PUBLIC_BETTER_AUTH_URL is not set');
@@ -18,19 +19,27 @@ export const auth = betterAuth({
     secret: privateEnv.PRIVATE_BETTER_AUTH_SECRET,
     appName: "Rugplay",
 
+    // Essential for Vercel/Production
     trustedOrigins: [
         publicEnv.PUBLIC_BETTER_AUTH_URL,
-        "http://rugplay.com",
+        "https://rugplay.com",
         "http://localhost:5173",
     ],
 
+    database: drizzleAdapter(db, {
+        provider: "pg",
+        schema: schema,
+    }),
+
     plugins: [
+        // CRITICAL: Must be in the plugins list for SvelteKit to handle cookies
+        sveltekitCookies(getRequestEvent),
         apiKey({
             defaultPrefix: 'rgpl_',
             rateLimit: {
                 enabled: true,
                 timeWindow: 1000 * 60 * 60 * 24, // 1 day
-                maxRequests: 2000 // 2000 requests per day
+                maxRequests: 2000
             },
             permissions: {
                 defaultPermissions: {
@@ -39,10 +48,7 @@ export const auth = betterAuth({
             }
         }),
     ],
-    database: drizzleAdapter(db, {
-        provider: "pg",
-        schema: schema,
-    }),
+
     socialProviders: {
         google: {
             clientId: privateEnv.GOOGLE_CLIENT_ID,
@@ -54,9 +60,7 @@ export const auth = betterAuth({
                 if (profile.picture) {
                     try {
                         const response = await fetch(profile.picture);
-                        if (!response.ok) {
-                            console.error(`Failed to fetch profile picture: ${response.statusText}`);
-                        } else {
+                        if (response.ok) {
                             const blob = await response.blob();
                             const arrayBuffer = await blob.arrayBuffer();
                             s3ImageKey = await uploadProfilePicture(
@@ -66,7 +70,7 @@ export const auth = betterAuth({
                             );
                         }
                     } catch (error) {
-                        console.error('Failed to upload profile picture during social login:', error);
+                        console.error('S3 Upload Failed:', error);
                     }
                 }
 
@@ -79,6 +83,7 @@ export const auth = betterAuth({
             },
         }
     },
+
     user: {
         additionalFields: {
             username: { type: "string", required: true, input: false },
@@ -91,12 +96,14 @@ export const auth = betterAuth({
             volumeMuted: { type: "boolean", required: false, input: false },
         }
     },
+
     session: {
         cookieCache: {
             enabled: true,
             maxAge: 60 * 5,
         }
     },
+
     advanced: {
         database: {
             generateId: false,
