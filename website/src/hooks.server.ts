@@ -77,7 +77,10 @@ async function initializeScheduler() {
     }
 }
 
-initializeScheduler();
+// initializeScheduler(); // better version:
+if (!process.env.VERCEL) {
+    initializeScheduler();
+}
 
 const sessionCache = new Map<string, {
     userData: any;
@@ -98,6 +101,7 @@ setInterval(() => {
 }, CACHE_CLEANUP_INTERVAL);
 
 export const handle: Handle = async ({ event, resolve }) => {
+    if (building) return resolve(event);
     if (event.url.pathname.startsWith('/.well-known/appspecific/com.chrome.devtools')) {
         return new Response(null, { status: 204 });
     }
