@@ -1,4 +1,13 @@
 {
+  "name": "rugplay-monorepo",
+  "private": true,
+  "workspaces": [
+    "website"
+  ],
+  "scripts": {
+    "build": "cd website && npm install && npm run build",
+    "install": "cd website && npm install"
+  },
   "dependencies": {
     "@hugeicons/core-free-icons": "^3.1.1",
     "@hugeicons/svelte": "^1.1.1"
