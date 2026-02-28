@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'; // Added this import
+	let { data } = $props();
 	import * as Card from '$lib/components/ui/card';
 	import * as Avatar from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';

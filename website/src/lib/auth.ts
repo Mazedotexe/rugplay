@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-// Corrected SvelteKit entry point
-import { sveltekitCookies, getRequestEvent } from "better-auth/svelte-kit"; 
+// FIXED: Removed getRequestEvent because it no longer exists
+import { sveltekitCookies } from "better-auth/svelte-kit"; 
 import { apiKey } from "better-auth/plugins";
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
@@ -28,7 +28,8 @@ export const auth = betterAuth({
         schema: schema,
     }),
     plugins: [
-        sveltekitCookies(getRequestEvent),
+        // FIXED: Removed getRequestEvent from here too
+        sveltekitCookies(),
         apiKey({
             defaultPrefix: 'rgpl_',
             rateLimit: {
@@ -36,7 +37,9 @@ export const auth = betterAuth({
                 timeWindow: 1000 * 60 * 60 * 24,
                 maxRequests: 2000
             },
-            permissions: { defaultPermissions: { api: ['read'] } }
+            permissions: {
+                defaultPermissions: { api: ['read'] }
+            }
         }),
     ],
     socialProviders: {
