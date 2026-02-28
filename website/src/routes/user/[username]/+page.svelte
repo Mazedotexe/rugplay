@@ -1,18 +1,25 @@
 <script lang="ts">
-	import { untrack } from 'svelte'; // Added this import
-	let { data } = $props();
+	import { untrack, onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { toast } from 'svelte-sonner';
+	
+	// UI Components
 	import * as Card from '$lib/components/ui/card';
 	import * as Avatar from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import * as Tooltip from '$lib/components/ui/tooltip';
+	
+	// Custom Components
 	import DataTable from '$lib/components/self/DataTable.svelte';
 	import ProfileBadges from '$lib/components/self/ProfileBadges.svelte';
 	import UserName from '$lib/components/self/UserName.svelte';
 	import ProfileSkeleton from '$lib/components/self/skeletons/ProfileSkeleton.svelte';
 	import SEO from '$lib/components/self/SEO.svelte';
-	import { getPublicUrl, formatPrice, formatValue, formatQuantity, formatDate } from '$lib/utils';
-	import { onMount } from 'svelte';
-	import { toast } from 'svelte-sonner';
+	import AdLong from '$lib/components/self/ads/AdLong.svelte';
+	
+	// Icons & Utils
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Calendar01Icon,
@@ -26,23 +33,25 @@
 		Award05Icon,
 		UnavailableIcon
 	} from '@hugeicons/core-free-icons';
-	import { goto } from '$app/navigation';
+	import { getPublicUrl, formatPrice, formatValue, formatQuantity, formatDate } from '$lib/utils';
 	import { USER_DATA } from '$lib/stores/user-data';
-	import * as Tooltip from '$lib/components/ui/tooltip';
-	import AdLong from '$lib/components/self/ads/AdLong.svelte';
 
+	// PROPS - Single declaration to fix "Identifier 'data' has already been declared"
 	let { data } = $props();
+
+	// Derived values from props
 	let username = $derived(data.username);
 
-	// FIXED: Wrapped in untrack to satisfy Svelte 5 build requirements
+	// STATE - Initialized with untrack to prevent "state_referenced_locally" build warnings
 	let profileData = $state(untrack(() => data.profileData));
 	let recentTransactions = $state(untrack(() => data.recentTransactions));
-	
 	let loading = $state(false);
 	let userAchievements = $state<any[]>([]);
-
 	let previousUsername = $state<string | null>(null);
+	let isBlocked = $state(false);
+	let blockLoading = $state(false);
 
+	// Sync local state when page data changes (navigation)
 	$effect(() => {
 		profileData = data.profileData;
 		recentTransactions = data.recentTransactions;
@@ -52,16 +61,13 @@
 		$USER_DATA && profileData?.profile && $USER_DATA.username === profileData.profile.username
 	);
 
-	let isBlocked = $state(false);
-	let blockLoading = $state(false);
-
 	async function checkBlockStatus() {
 		if (!$USER_DATA || isOwnProfile) return;
 		try {
 			const res = await fetch('/api/settings/blocked');
 			if (res.ok) {
-				const data = await res.json();
-				isBlocked = data.blocks?.some((b: any) => b.username === username) ?? false;
+				const blockList = await res.json();
+				isBlocked = blockList.blocks?.some((b: any) => b.username === username) ?? false;
 			}
 		} catch { /* silent */ }
 	}
@@ -77,8 +83,8 @@
 				isBlocked = !isBlocked;
 				toast.success(isBlocked ? 'User blocked' : 'User unblocked');
 			} else {
-				const data = await res.json();
-				toast.error(data.message || 'Failed to update block status');
+				const errorData = await res.json();
+				toast.error(errorData.message || 'Failed to update block status');
 			}
 		} catch {
 			toast.error('Failed to update block status');
@@ -97,6 +103,7 @@
 		}
 	});
 
+	// Handle navigation between different user profiles
 	$effect(() => {
 		if (username && previousUsername && username !== previousUsername) {
 			userAchievements = [];
@@ -106,37 +113,13 @@
 		}
 	});
 
-	$effect(() => {
-		if (isOwnProfile && profileData) {
-			fetchTransactions();
-		}
-	});
-
-	async function fetchProfileData() {
-		try {
-			const response = await fetch(`/api/user/${username}`);
-			if (response.ok) {
-				profileData = await response.json();
-				recentTransactions = profileData?.recentTransactions || [];
-			} else {
-				toast.error('Failed to load profile data');
-			}
-		} catch (e) {
-			console.error('Failed to fetch profile data:', e);
-			toast.error('Failed to load profile data');
-		} finally {
-			loading = false;
-		}
-	}
-
 	async function fetchTransactions() {
 		if (!isOwnProfile) return;
-
 		try {
 			const response = await fetch('/api/transactions?limit=10');
 			if (response.ok) {
-				const data = await response.json();
-				recentTransactions = data.transactions || [];
+				const txData = await response.json();
+				recentTransactions = txData.transactions || [];
 			}
 		} catch (e) {
 			console.error('Failed to fetch transactions:', e);
@@ -147,14 +130,13 @@
 		try {
 			const res = await fetch(`/api/user/${username}/achievements`);
 			if (res.ok) {
-				const data = await res.json();
-				userAchievements = data.achievements || [];
+				const achievementData = await res.json();
+				userAchievements = achievementData.achievements || [];
 			}
-		} catch {
-			// silent fail
-		}
+		} catch { /* silent */ }
 	}
 
+	// Stats Calculations
 	let memberSince = $derived(
 		profileData?.profile
 			? new Date(profileData.profile.createdAt).toLocaleDateString('en-US', {
@@ -163,8 +145,9 @@
 				})
 			: ''
 	);
+	
 	let hasCreatedCoins = $derived(
-		profileData?.createdCoins?.length ? profileData.createdCoins.length > 0 : false
+		profileData?.createdCoins?.length > 0
 	);
 
 	let totalTradingVolume = $derived(
@@ -184,45 +167,25 @@
 			: 0
 	);
 
-	let totalPortfolioValue = $derived(
-		profileData?.stats?.totalPortfolioValue ? Number(profileData.stats.totalPortfolioValue) : 0
-	);
-	let baseCurrencyBalance = $derived(
-		profileData?.stats?.baseCurrencyBalance ? Number(profileData.stats.baseCurrencyBalance) : 0
-	);
-	let holdingsValue = $derived(
-		profileData?.stats?.holdingsValue ? Number(profileData.stats.holdingsValue) : 0
-	);
-	let totalBuyVolume = $derived(
-		profileData?.stats?.totalBuyVolume ? Number(profileData.stats.totalBuyVolume) : 0
-	);
-	let totalSellVolume = $derived(
-		profileData?.stats?.totalSellVolume ? Number(profileData.stats.totalSellVolume) : 0
-	);
-	let buyVolume24h = $derived(
-		profileData?.stats?.buyVolume24h ? Number(profileData.stats.buyVolume24h) : 0
-	);
-	let sellVolume24h = $derived(
-		profileData?.stats?.sellVolume24h ? Number(profileData.stats.sellVolume24h) : 0
-	);
+	let totalPortfolioValue = $derived(Number(profileData?.stats?.totalPortfolioValue ?? 0));
+	let baseCurrencyBalance = $derived(Number(profileData?.stats?.baseCurrencyBalance ?? 0));
+	let holdingsValue = $derived(Number(profileData?.stats?.holdingsValue ?? 0));
+	let totalBuyVolume = $derived(Number(profileData?.stats?.totalBuyVolume ?? 0));
+	let totalSellVolume = $derived(Number(profileData?.stats?.totalSellVolume ?? 0));
+	let buyVolume24h = $derived(Number(profileData?.stats?.buyVolume24h ?? 0));
+	let sellVolume24h = $derived(Number(profileData?.stats?.sellVolume24h ?? 0));
 
 	let totalTradingVolumeAllTime = $derived(totalBuyVolume + totalSellVolume);
-
 	let totalTradingVolume24h = $derived(buyVolume24h + sellVolume24h);
 
 	// Arcade stats
-	let arcadeWins = $derived(
-		profileData?.profile?.arcadeWins ? Number(profileData.profile.arcadeWins) : 0
-	);
-	let arcadeLosses = $derived(
-		profileData?.profile?.arcadeLosses ? Number(profileData.profile.arcadeLosses) : 0
-	);
+	let arcadeWins = $derived(Number(profileData?.profile?.arcadeWins ?? 0));
+	let arcadeLosses = $derived(Number(profileData?.profile?.arcadeLosses ?? 0));
 	let totalPlayed = $derived(arcadeWins + arcadeLosses);
 	let netProfit = $derived(arcadeWins - arcadeLosses);
-	let winRate = $derived(
-		totalPlayed > 0 ? ((arcadeWins / totalPlayed) * 100).toFixed(1) : '0.0'
-	);
+	let winRate = $derived(totalPlayed > 0 ? ((arcadeWins / totalPlayed) * 100).toFixed(1) : '0.0');
 
+	// Table Configurations
 	const createdCoinsColumns = [
 		{
 			key: 'coin',
@@ -279,14 +242,6 @@
 						class: 'text-xs'
 					};
 				}
-				if (row.isTransfer) {
-					return {
-						component: 'badge',
-						variant: 'default',
-						text: row.isIncoming ? 'Received' : 'Sent',
-						class: 'text-xs'
-					};
-				}
 				return {
 					component: 'badge',
 					variant: value === 'BUY' ? 'success' : 'destructive',
@@ -300,35 +255,12 @@
 			label: 'Coin',
 			class: 'w-[20%] min-w-[100px] md:w-[12%]',
 			render: (value: any, row: any) => {
-				if (row.isTransfer) {
-					if (row.isCoinTransfer && row.coin) {
-						return {
-							component: 'coin',
-							icon: row.coin.icon,
-							symbol: row.coin.symbol,
-							name: `*${row.coin.symbol}`,
-							size: 4
-						};
-					}
-					return { component: 'text', text: '-' };
-				}
-				if (row.type === 'TRANSFER_IN' || row.type === 'TRANSFER_OUT') {
-					if (row.coinSymbol && Number(row.quantity) > 0) {
-						return {
-							component: 'coin',
-							icon: row.coinIcon,
-							symbol: row.coinSymbol,
-							name: `*${row.coinSymbol}`,
-							size: 4
-						};
-					}
-					return { component: 'text', text: '-' };
-				}
+				const sym = row.coinSymbol || row.coin?.symbol;
 				return {
 					component: 'coin',
 					icon: row.coinIcon || row.coin?.icon,
-					symbol: row.coinSymbol || row.coin?.symbol,
-					name: `*${row.coinSymbol || row.coin?.symbol}`,
+					symbol: sym,
+					name: sym ? `*${sym}` : '-',
 					size: 4
 				};
 			}
@@ -337,68 +269,27 @@
 			key: 'sender',
 			label: 'Sender',
 			class: 'w-[12%] min-w-[70px] md:w-[10%]',
-			render: (value: any, row: any) => {
-				if (row.isTransfer) {
-					return {
-						component: 'text',
-						text: row.sender || 'Unknown',
-						class: row.sender && row.sender !== 'Unknown' ? 'font-medium' : 'text-muted-foreground'
-					};
-				}
-				if (row.type === 'TRANSFER_IN' || row.type === 'TRANSFER_OUT') {
-					return {
-						component: 'text',
-						text: row.senderUsername || 'Unknown',
-						class: row.senderUsername ? 'font-medium' : 'text-muted-foreground'
-					};
-				}
-				return {
-					component: 'text',
-					text: '-',
-					class: 'text-muted-foreground'
-				};
-			}
+			render: (value: any, row: any) => ({
+				component: 'text',
+				text: row.sender || row.senderUsername || '-',
+				class: 'font-medium'
+			})
 		},
 		{
 			key: 'recipient',
 			label: 'Receiver',
 			class: 'w-[12%] min-w-[70px] md:w-[10%]',
-			render: (value: any, row: any) => {
-				if (row.isTransfer) {
-					return {
-						component: 'text',
-						text: row.recipient || 'Unknown',
-						class:
-							row.recipient && row.recipient !== 'Unknown' ? 'font-medium' : 'text-muted-foreground'
-					};
-				}
-				if (row.type === 'TRANSFER_IN' || row.type === 'TRANSFER_OUT') {
-					return {
-						component: 'text',
-						text: row.recipientUsername || 'Unknown',
-						class: row.recipientUsername ? 'font-medium' : 'text-muted-foreground'
-					};
-				}
-				return {
-					component: 'text',
-					text: '-',
-					class: 'text-muted-foreground'
-				};
-			}
+			render: (value: any, row: any) => ({
+				component: 'text',
+				text: row.recipient || row.recipientUsername || '-',
+				class: 'font-medium'
+			})
 		},
 		{
 			key: 'quantity',
 			label: 'Quantity',
 			class: 'w-[12%] min-w-[70px] md:w-[10%] font-mono text-sm',
-			render: (value: any, row: any) => {
-				if (
-					(row.isTransfer && value === 0) ||
-					((row.type === 'TRANSFER_IN' || row.type === 'TRANSFER_OUT') && value === 0)
-				) {
-					return '-';
-				}
-				return formatQuantity(parseFloat(value));
-			}
+			render: (value: any) => value === 0 ? '-' : formatQuantity(parseFloat(value))
 		},
 		{
 			key: 'totalBaseCurrencyAmount',
@@ -419,15 +310,11 @@
 	title={profileData?.profile?.name
 		? `${profileData.profile.name} (@${profileData.profile.username}) - Rugplay`
 		: `@${username} - Rugplay`}
-	description={profileData?.profile?.bio
-		? `${profileData.profile.bio} - View ${profileData.profile.name}'s simulated trading activity and virtual portfolio in the Rugplay cryptocurrency simulation game.`
-		: `View @${username}'s profile and simulated trading activity in Rugplay - cryptocurrency trading simulation game platform.`}
+	description={profileData?.profile?.bio || `View @${username}'s profile and simulated trading activity in Rugplay.`}
 	type="profile"
 	image={profileData?.profile?.image ? getPublicUrl(profileData.profile.image) : '/apple-touch-icon.png'}
-	imageAlt={profileData?.profile?.name
-		? `${profileData.profile.name}'s profile picture`
-		: `@${username}'s profile`}
-	keywords="crypto trader profile game, virtual trading portfolio, cryptocurrency simulation game, user portfolio simulator"
+	imageAlt="@{username}'s profile"
+	keywords="crypto trader profile game, virtual trading portfolio, rugplay"
 	twitterCard="summary"
 />
 
@@ -438,7 +325,7 @@
 		<div class="flex h-96 items-center justify-center">
 			<div class="text-center">
 				<div class="text-muted-foreground mb-4 text-xl">Failed to load profile</div>
-				<Button onclick={fetchProfileData}>Try Again</Button>
+				<Button onclick={() => window.location.reload()}>Try Again</Button>
 			</div>
 		</div>
 	{:else}
@@ -447,38 +334,32 @@
 				<div class="flex flex-col gap-4 sm:flex-row sm:items-start">
 					<div class="flex-shrink-0">
 						<Avatar.Root class="size-20 sm:size-24">
-							<Avatar.Image
-								src={getPublicUrl(profileData.profile.image)}
-								alt={profileData.profile.name}
-							/>
-							<Avatar.Fallback class="text-xl"
-								>{profileData.profile.name.charAt(0).toUpperCase()}</Avatar.Fallback
-							>
+							<Avatar.Image src={getPublicUrl(profileData.profile.image)} alt={profileData.profile.name} />
+							<Avatar.Fallback class="text-xl">{profileData.profile.name.charAt(0).toUpperCase()}</Avatar.Fallback>
 						</Avatar.Root>
 					</div>
 
 					<div class="min-w-0 flex-1">
 						<div class="mb-3">
 							<div class="mb-1 flex flex-wrap items-center gap-2">
-								<h1 class="text-2xl font-bold sm:text-3xl"><UserName name={profileData.profile.name} nameColor={profileData.profile.nameColor} /></h1>
-
+								<h1 class="text-2xl font-bold sm:text-3xl">
+									<UserName name={profileData.profile.name} nameColor={profileData.profile.nameColor} />
+								</h1>
 								<ProfileBadges user={profileData.profile} />
 							</div>
 							<p class="text-muted-foreground text-lg">@{profileData.profile.username}</p>
 						</div>
 
 						{#if profileData.profile.bio}
-							<p class="text-muted-foreground mb-3 max-w-2xl leading-relaxed">
-								{profileData.profile.bio}
-							</p>
+							<p class="text-muted-foreground mb-3 max-w-2xl leading-relaxed">{profileData.profile.bio}</p>
 						{/if}
 
 						<div class="text-muted-foreground flex items-center gap-2 text-sm">
 							<HugeiconsIcon icon={Calendar01Icon} class="h-4 w-4" />
 							<span>Joined {memberSince}</span>
 						</div>
-
 					</div>
+
 					{#if $USER_DATA && !isOwnProfile}
 						<div class="ml-auto self-start">
 							<Tooltip.Provider>
@@ -510,33 +391,23 @@
 						<div class="text-muted-foreground text-sm font-medium">Total Portfolio</div>
 						<HugeiconsIcon icon={Wallet01Icon} class="text-muted-foreground h-4 w-4" />
 					</div>
-					<div class="mt-1 text-2xl font-bold">
-						{formatValue(totalPortfolioValue)}
-					</div>
+					<div class="mt-1 text-2xl font-bold">{formatValue(totalPortfolioValue)}</div>
 					<p class="text-muted-foreground text-xs">{profileData.stats.holdingsCount} holdings</p>
 				</Card.Content>
 			</Card.Root>
 
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
-					<div class="flex items-center justify-between">
-						<div class="text-muted-foreground text-sm font-medium">Liquid Value</div>
-					</div>
-					<div class="text-success mt-1 text-2xl font-bold">
-						{formatValue(baseCurrencyBalance)}
-					</div>
+					<div class="text-muted-foreground text-sm font-medium">Liquid Value</div>
+					<div class="text-success mt-1 text-2xl font-bold">{formatValue(baseCurrencyBalance)}</div>
 					<p class="text-muted-foreground text-xs">Available cash</p>
 				</Card.Content>
 			</Card.Root>
 
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
-					<div class="flex items-center justify-between">
-						<div class="text-muted-foreground text-sm font-medium">Illiquid Value</div>
-					</div>
-					<div class="text-success mt-1 text-2xl font-bold">
-						{formatValue(holdingsValue)}
-					</div>
+					<div class="text-muted-foreground text-sm font-medium">Illiquid Value</div>
+					<div class="text-success mt-1 text-2xl font-bold">{formatValue(holdingsValue)}</div>
 					<p class="text-muted-foreground text-xs">Coin holdings</p>
 				</Card.Content>
 			</Card.Root>
@@ -545,16 +416,10 @@
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
 						<div class="text-muted-foreground text-sm font-medium">Buy/Sell Ratio</div>
-						<div class="flex gap-1">
-							<div class="bg-success h-2 w-2 rounded-full"></div>
-							<div class="h-2 w-2 rounded-full bg-red-500"></div>
-						</div>
 					</div>
 					<div class="mt-1 flex items-center gap-2">
 						<span class="text-success text-xl font-bold">{buyPercentage.toFixed(1)}%</span>
-						<span class="text-muted-foreground text-xs">buy</span>
 						<span class="text-xl font-bold text-red-600">{sellPercentage.toFixed(1)}%</span>
-						<span class="text-muted-foreground text-xs">sell</span>
 					</div>
 				</Card.Content>
 			</Card.Root>
@@ -567,18 +432,8 @@
 						<div class="text-foreground text-sm font-medium">Buy Activity</div>
 						<HugeiconsIcon icon={TradeUpIcon} class="text-success h-4 w-4" />
 					</div>
-					<div class="mt-1">
-						<div class="text-success text-2xl font-bold">
-							{formatValue(totalBuyVolume)}
-						</div>
-						<div class="text-muted-foreground text-xs">Total amount spent</div>
-					</div>
-					<div class="border-muted mt-3 border-t pt-3">
-						<div class="text-success text-lg font-bold">
-							{formatValue(buyVolume24h)}
-						</div>
-						<div class="text-muted-foreground text-xs">24h buy volume</div>
-					</div>
+					<div class="text-success mt-1 text-2xl font-bold">{formatValue(totalBuyVolume)}</div>
+					<div class="text-success mt-3 border-t pt-3 text-lg font-bold">{formatValue(buyVolume24h)} (24h)</div>
 				</Card.Content>
 			</Card.Root>
 
@@ -588,106 +443,52 @@
 						<div class="text-foreground text-sm font-medium">Sell Activity</div>
 						<HugeiconsIcon icon={TradeDownIcon} class="h-4 w-4 text-red-600" />
 					</div>
-					<div class="mt-1">
-						<div class="text-2xl font-bold text-red-600">
-							{formatValue(totalSellVolume)}
-						</div>
-						<div class="text-muted-foreground text-xs">Total amount received</div>
-					</div>
-					<div class="border-muted mt-3 border-t pt-3">
-						<div class="text-lg font-bold text-red-600">
-							{formatValue(sellVolume24h)}
-						</div>
-						<div class="text-muted-foreground text-xs">24h sell volume</div>
-					</div>
+					<div class="mt-1 text-2xl font-bold text-red-600">{formatValue(totalSellVolume)}</div>
+					<div class="mt-3 border-t pt-3 text-lg font-bold text-red-600">{formatValue(sellVolume24h)} (24h)</div>
 				</Card.Content>
 			</Card.Root>
 
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
-					<div class="flex items-center justify-between">
-						<div class="text-muted-foreground text-sm font-medium">Total Trading Volume</div>
-						<Badge variant="outline" class="text-xs">All Time</Badge>
-					</div>
-					<div class="mt-1 text-2xl font-bold">
-						{formatValue(totalTradingVolumeAllTime)}
-					</div>
-					<div class="text-muted-foreground text-xs">
-						{profileData.stats.totalTransactions} total trades
-					</div>
+					<div class="text-muted-foreground text-sm font-medium">Total Volume</div>
+					<div class="mt-1 text-2xl font-bold">{formatValue(totalTradingVolumeAllTime)}</div>
+					<div class="text-muted-foreground text-xs">{profileData.stats.totalTransactions} total trades</div>
 				</Card.Content>
 			</Card.Root>
 
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
-					<div class="flex items-center justify-between">
-						<div class="text-muted-foreground text-sm font-medium">24h Trading Volume</div>
-						<Badge variant="outline" class="text-xs">24h</Badge>
-					</div>
-					<div class="mt-1 text-2xl font-bold">
-						{formatValue(totalTradingVolume24h)}
-					</div>
-					<div class="text-muted-foreground text-xs">
-						{profileData.stats.transactions24h || 0} trades today
-					</div>
+					<div class="text-muted-foreground text-sm font-medium">24h Volume</div>
+					<div class="mt-1 text-2xl font-bold">{formatValue(totalTradingVolume24h)}</div>
+					<div class="text-muted-foreground text-xs">{profileData.stats.transactions24h || 0} trades today</div>
 				</Card.Content>
 			</Card.Root>
 		</div>
 
 		<div class="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-4">
 			<Card.Root class="py-0">
-				<Card.Content class="p-4">
-					<div class="flex items-center justify-between">
-						<div class="text-foreground text-sm font-medium">Total Wins</div>
-						<HugeiconsIcon icon={TradeUpIcon} class="text-success h-4 w-4" />
-					</div>
-					<div class="text-success mt-1 text-2xl font-bold">
-						{formatValue(arcadeWins)}
-					</div>
-					<div class="text-muted-foreground text-xs">Total arcade winnings</div>
+				<Card.Content class="p-4 text-success">
+					<div class="text-sm font-medium text-foreground">Arcade Wins</div>
+					<div class="mt-1 text-2xl font-bold">{formatValue(arcadeWins)}</div>
 				</Card.Content>
 			</Card.Root>
-
 			<Card.Root class="py-0">
-				<Card.Content class="p-4">
-					<div class="flex items-center justify-between">
-						<div class="text-foreground text-sm font-medium">Total Losses</div>
-						<HugeiconsIcon icon={TradeDownIcon} class="h-4 w-4 text-red-600" />
-					</div>
-					<div class="mt-1 text-2xl font-bold text-red-600">
-						{formatValue(arcadeLosses)}
-					</div>
-					<div class="text-muted-foreground text-xs">Total arcade losses</div>
+				<Card.Content class="p-4 text-red-600">
+					<div class="text-sm font-medium text-foreground">Arcade Losses</div>
+					<div class="mt-1 text-2xl font-bold">{formatValue(arcadeLosses)}</div>
 				</Card.Content>
 			</Card.Root>
-
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
-					<div class="flex items-center justify-between">
-						<div class="text-muted-foreground text-sm font-medium">Win Rate</div>
-						<HugeiconsIcon icon={PercentIcon} class="text-muted-foreground h-4 w-4" />
-					</div>
-					<div class="mt-1 text-2xl font-bold">
-						{winRate}%
-					</div>
-					<div class="text-muted-foreground text-xs">Percentage of wins</div>
+					<div class="text-muted-foreground text-sm font-medium">Win Rate</div>
+					<div class="mt-1 text-2xl font-bold">{winRate}%</div>
 				</Card.Content>
 			</Card.Root>
-
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
-					<div class="flex items-center justify-between">
-						<div class="text-muted-foreground text-sm font-medium">Net Profit</div>
-					</div>
-					<div class="mt-1 text-2xl font-bold" class:text-success={netProfit >= 0} class:text-red-600={netProfit < 0}>
-						{#if netProfit >= 0}
-							{formatValue(netProfit)}
-						{:else}
-							-{formatValue(Math.abs(netProfit))}
-						{/if}
-					</div>
-					<div class="text-muted-foreground text-xs">
-						{netProfit >= 0 ? 'Overall profit' : 'Overall loss'}
+					<div class="text-muted-foreground text-sm font-medium">Net Profit</div>
+					<div class="mt-1 text-2xl font-bold {netProfit >= 0 ? 'text-success' : 'text-red-600'}">
+						{netProfit >= 0 ? '' : '-'}{formatValue(Math.abs(netProfit))}
 					</div>
 				</Card.Content>
 			</Card.Root>
@@ -701,9 +502,7 @@
 							<HugeiconsIcon icon={Award05Icon} class="h-5 w-5 text-yellow-500" />
 							Achievements ({userAchievements.filter((a) => a.unlocked).length}/{userAchievements.length})
 						</Card.Title>
-						<Button variant="outline" size="sm" onclick={() => goto('/achievements')}>
-							View All
-						</Button>
+						<Button variant="outline" size="sm" onclick={() => goto('/achievements')}>View All</Button>
 					</div>
 				</Card.Header>
 				<Card.Content>
@@ -717,15 +516,9 @@
 										class="h-8 w-8 cursor-pointer transition-all {achievement.unlocked ? 'hover:scale-110' : 'brightness-[0.3] grayscale'}"
 									/>
 								</Tooltip.Trigger>
-								<Tooltip.Content
-									class="bg-secondary text-secondary-foreground ring-border ring-1"
-									arrowClasses="bg-secondary"
-								>
+								<Tooltip.Content class="bg-secondary text-secondary-foreground ring-1 ring-border">
 									<p class="font-semibold">{achievement.name}</p>
 									<p class="text-muted-foreground text-xs">{achievement.description}</p>
-									{#if !achievement.unlocked}
-										<p class="mt-1 text-xs text-yellow-500">Locked</p>
-									{/if}
 								</Tooltip.Content>
 							</Tooltip.Root>
 						{/each}
@@ -738,12 +531,11 @@
 
 		{#if hasCreatedCoins}
 			<Card.Root class="mb-6">
-				<Card.Header class="pb-3">
+				<Card.Header>
 					<Card.Title class="flex items-center gap-2">
 						<HugeiconsIcon icon={Coins01Icon} class="h-5 w-5" />
 						Created Coins ({profileData.createdCoins.length})
 					</Card.Title>
-					<Card.Description>Coins launched by {profileData.profile.name}</Card.Description>
 				</Card.Header>
 				<Card.Content class="p-0">
 					<DataTable
@@ -756,12 +548,11 @@
 		{/if}
 
 		<Card.Root>
-			<Card.Header class="pb-3">
+			<Card.Header>
 				<Card.Title class="flex items-center gap-2">
 					<HugeiconsIcon icon={Activity01Icon} class="h-5 w-5" />
-					Recent Trading Activity
+					Recent Activity
 				</Card.Title>
-				<Card.Description>Latest transactions by {profileData.profile.name}</Card.Description>
 			</Card.Header>
 			<Card.Content class="p-0">
 				<DataTable
@@ -769,7 +560,6 @@
 					data={recentTransactions}
 					emptyIcon={Invoice03Icon}
 					emptyTitle="No recent activity"
-					emptyDescription="This user hasn't made any trades yet."
 				/>
 			</Card.Content>
 		</Card.Root>
