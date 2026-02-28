@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'; // Added this import
 	import * as Card from '$lib/components/ui/card';
 	import * as Avatar from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';
@@ -32,8 +33,10 @@
 	let { data } = $props();
 	let username = $derived(data.username);
 
-	let profileData = $state(data.profileData);
-	let recentTransactions = $state(data.recentTransactions);
+	// FIXED: Wrapped in untrack to satisfy Svelte 5 build requirements
+	let profileData = $state(untrack(() => data.profileData));
+	let recentTransactions = $state(untrack(() => data.recentTransactions));
+	
 	let loading = $state(false);
 	let userAchievements = $state<any[]>([]);
 
@@ -267,7 +270,6 @@
 			label: 'Type',
 			class: 'w-[12%] min-w-[60px] md:w-[8%] pl-6',
 			render: (value: any, row: any) => {
-				// Handle transfer types (TRANSFER_IN, TRANSFER_OUT) from user profile API
 				if (value === 'TRANSFER_IN' || value === 'TRANSFER_OUT') {
 					return {
 						component: 'badge',
@@ -276,7 +278,6 @@
 						class: 'text-xs'
 					};
 				}
-				// Handle isTransfer format from transactions API
 				if (row.isTransfer) {
 					return {
 						component: 'badge',
@@ -298,7 +299,6 @@
 			label: 'Coin',
 			class: 'w-[20%] min-w-[100px] md:w-[12%]',
 			render: (value: any, row: any) => {
-				// Handle transfer format from transactions API
 				if (row.isTransfer) {
 					if (row.isCoinTransfer && row.coin) {
 						return {
@@ -311,7 +311,6 @@
 					}
 					return { component: 'text', text: '-' };
 				}
-				// Handle transfer types from user profile API
 				if (row.type === 'TRANSFER_IN' || row.type === 'TRANSFER_OUT') {
 					if (row.coinSymbol && Number(row.quantity) > 0) {
 						return {
@@ -324,7 +323,6 @@
 					}
 					return { component: 'text', text: '-' };
 				}
-				// Handle regular transactions from both APIs
 				return {
 					component: 'coin',
 					icon: row.coinIcon || row.coin?.icon,
@@ -443,11 +441,9 @@
 			</div>
 		</div>
 	{:else}
-		<!-- Profile Header Card -->
 		<Card.Root class="mb-6 py-0">
 			<Card.Content class="p-6">
 				<div class="flex flex-col gap-4 sm:flex-row sm:items-start">
-					<!-- Avatar -->
 					<div class="flex-shrink-0">
 						<Avatar.Root class="size-20 sm:size-24">
 							<Avatar.Image
@@ -460,13 +456,11 @@
 						</Avatar.Root>
 					</div>
 
-					<!-- Profile Info -->
 					<div class="min-w-0 flex-1">
 						<div class="mb-3">
 							<div class="mb-1 flex flex-wrap items-center gap-2">
 								<h1 class="text-2xl font-bold sm:text-3xl"><UserName name={profileData.profile.name} nameColor={profileData.profile.nameColor} /></h1>
 
-								<!-- Badges -->
 								<ProfileBadges user={profileData.profile} />
 							</div>
 							<p class="text-muted-foreground text-lg">@{profileData.profile.username}</p>
@@ -508,9 +502,7 @@
 			</Card.Content>
 		</Card.Root>
 
-		<!-- Main Portfolio Stats -->
 		<div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-			<!-- Total Portfolio Value -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -524,7 +516,6 @@
 				</Card.Content>
 			</Card.Root>
 
-			<!-- Liquid Value -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -537,7 +528,6 @@
 				</Card.Content>
 			</Card.Root>
 
-			<!-- Illiquid Value -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -550,7 +540,6 @@
 				</Card.Content>
 			</Card.Root>
 
-			<!-- Buy/Sell Ratio -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -570,9 +559,7 @@
 			</Card.Root>
 		</div>
 
-		<!-- Buy & Sell Activity Breakdown -->
 		<div class="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-4">
-			<!-- Buy Activity -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -594,7 +581,6 @@
 				</Card.Content>
 			</Card.Root>
 
-			<!-- Sell Activity -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -616,7 +602,6 @@
 				</Card.Content>
 			</Card.Root>
 
-			<!-- Total Trading Volume -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -632,7 +617,6 @@
 				</Card.Content>
 			</Card.Root>
 
-			<!-- 24h Trading Volume -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -649,9 +633,7 @@
 			</Card.Root>
 		</div>
 
-		<!-- Arcade Stats -->
 		<div class="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-4">
-			<!-- Total Wins -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -665,7 +647,6 @@
 				</Card.Content>
 			</Card.Root>
 
-			<!-- Total Losses -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -679,7 +660,6 @@
 				</Card.Content>
 			</Card.Root>
 
-			<!-- Win Rate -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -693,7 +673,6 @@
 				</Card.Content>
 			</Card.Root>
 
-			<!-- Net Profit -->
 			<Card.Root class="py-0">
 				<Card.Content class="p-4">
 					<div class="flex items-center justify-between">
@@ -713,7 +692,6 @@
 			</Card.Root>
 		</div>
 
-		<!-- Achievements -->
 		{#if userAchievements.length > 0}
 			<Card.Root class="mb-6">
 				<Card.Header class="pb-3">
@@ -757,7 +735,6 @@
 
 		<AdLong />
 
-		<!-- Created Coins -->
 		{#if hasCreatedCoins}
 			<Card.Root class="mb-6">
 				<Card.Header class="pb-3">
@@ -777,7 +754,6 @@
 			</Card.Root>
 		{/if}
 
-		<!-- Recent Trading Activity -->
 		<Card.Root>
 			<Card.Header class="pb-3">
 				<Card.Title class="flex items-center gap-2">
